@@ -1,0 +1,93 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AgroMaster — учебный стенд</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f2f4ee;color:#17281e;font:17px 'Segoe UI',sans-serif}header{background:#153929;color:#fff;padding:21px 35px;display:flex;align-items:center;justify-content:space-between}header b{font-size:25px}header span{color:#d4e2b2}main{max-width:1080px;margin:auto;padding:22px 34px}nav{display:flex;gap:8px;border-bottom:1px solid #ccdacd;padding-bottom:14px}button,.button{border:1px solid #bccbbb;background:#fff;color:#153929;border-radius:7px;padding:9px 14px;font:600 15px 'Segoe UI',sans-serif;cursor:pointer;text-decoration:none}button.on,.primary{background:#225642;color:#fff;border-color:#225642}h1{font-size:31px;margin:20px 0 4px}p{margin:7px 0 15px}.row{display:flex;gap:14px;margin:19px 0}.tile,section{background:#fff;border:1px solid #d1dcd1;border-radius:10px;padding:15px 18px}.tile{flex:1}.tile b{display:block;font-size:25px;margin-top:4px}table{width:100%;border-collapse:collapse;background:#fff;margin:12px 0;border:1px solid #d1dcd1}th,td{text-align:left;padding:10px 13px;border-bottom:1px solid #d1dcd1}th{background:#e5eee4;font-size:15px}label{display:inline-flex;flex-direction:column;gap:5px;font-size:15px;font-weight:600}form{display:flex;align-items:end;gap:12px;flex-wrap:wrap}input,select{background:#fff;border:1px solid #aabdab;border-radius:6px;padding:8px;font:16px 'Segoe UI';max-width:200px}output{display:block;margin-top:12px;min-height:24px;color:#225642;font-weight:600}output.error{color:#a12b1b}.check{color:#1f6946;font-weight:700}.bad{color:#a12b1b}.meta{color:#516357}.toolbar{display:flex;gap:12px;align-items:center}.toolbar a{display:inline-block}
+</style>
+<header><b>AgroMaster</b><span>Учебное хозяйство «Северное» · демонстрационные данные</span></header><main><nav id="nav"></nav><div id="app"></div></main>
+<script>
+const initial = {fields:[{id:'F01',name:'Северное',crop:'Пшеница',area:24.5},{id:'F02',name:'Озерное',crop:'Ячмень',area:18},{id:'F03',name:'Южное',crop:'Рапс',area:12.5}],operations:[{id:'O01',field:'F01',kind:'Осмотр',date:'2026-11-26',status:'Выполнена'},{id:'O02',field:'F02',kind:'Планирование посева',date:'2026-11-30',status:'Запланирована'}]};
+const key='agromaster-study-v1';
+const copy=x=>JSON.parse(JSON.stringify(x));
+const statusValues=['Запланирована','Выполнена'];
+const tabs={overview:'Обзор',fields:'Поля',operations:'Журнал работ',backup:'Резервные копии',tests:'Проверки'};
+const params=new URLSearchParams(location.search);
+const app=document.querySelector('#app');
+const nav=document.querySelector('#nav');
+const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const areaFmt=new Intl.NumberFormat('ru-RU');
+function parseArea(value){
+  const number=Number(String(value).trim().replace(',','.'));
+  if(!Number.isFinite(number)||number<0) throw new Error('Введите площадь больше нуля.');
+  return number;
+}
+function validDate(value){
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||value.startsWith('0000')) return false;
+  const date=new Date(value+'T00:00:00Z');
+  return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===value;
+}
+function restore(raw){
+  const {version,fields,operations}=JSON.parse(raw);
+  if(version!==1||!Array.isArray(fields)||!Array.isArray(operations)) throw new Error('Неподдерживаемый формат копии.');
+  const ids=new Set();
+  const nextFields=fields.map(f=>{
+    if(!f||typeof f.id!=='string'||!f.id||ids.has(f.id)||typeof f.name!=='string'||!f.name.trim()||typeof f.crop!=='string'||!f.crop.trim()||typeof f.area!=='number') throw new Error('Некорректная карточка поля.');
+    ids.add(f.id); return {id:f.id,name:f.name,crop:f.crop,area:parseArea(f.area)};
+  });
+  const operationIds=new Set();
+  const nextOperations=operations.map(o=>{
+    if(!o||typeof o.id!=='string'||!o.id||operationIds.has(o.id)||!ids.has(o.field)||typeof o.kind!=='string'||!o.kind.trim()||!validDate(o.date)||!statusValues.includes(o.status)) throw new Error('Некорректная запись журнала или ссылка на поле.');
+    operationIds.add(o.id); return {id:o.id,field:o.field,kind:o.kind,date:o.date,status:o.status};
+  });
+  return {fields:nextFields,operations:nextOperations};
+}
+const snapshot=data=>JSON.stringify({version:1,fields:data.fields,operations:data.operations},null,2);
+let state;
+try{state=params.has('demo')?copy(initial):restore(localStorage.getItem(key)||snapshot(initial));}catch{state=copy(initial);}
+const store=next=>{if(!params.has('demo')) localStorage.setItem(key,snapshot(next)); state=next;};
+function addField(data,name,crop,area){
+  if(!name.trim()||!crop.trim()) throw new Error('Укажите название поля и культуру.');
+  return {...data,fields:[...data.fields,{id:nextId(data.fields,'F'),name:name.trim(),crop:crop.trim(),area:parseArea(area)}]};
+}
+function nextId(rows,prefix){let n=1;while(rows.some(r=>r.id===prefix+String(n).padStart(2,'0'))) n++;return prefix+String(n).padStart(2,'0');}
+function addOperation(data,field,kind,date){
+  if(!data.fields.some(f=>f.id===field)||!kind.trim()||!validDate(date)) throw new Error('Проверьте поле, название и дату работы.');
+  return {...data,operations:[...data.operations,{id:nextId(data.operations,'O'),field,kind:kind.trim(),date,status:statusValues[0]}]};
+}
+function finishOperation(data,id){return {...data,operations:data.operations.map(o=>o.id===id?{...o,status:statusValues[1]}:o)};}
+function filterOperations(data,status){return data.operations.filter(o=>!status||o.status===status);}
+function fieldRows(){return state.fields.map(f=>`<tr><td>${esc(f.id)}</td><td>${esc(f.name)}</td><td>${esc(f.crop)}</td><td>${areaFmt.format(f.area)}</td></tr>`).join('');}
+const fieldTable=()=>`<table><thead><tr><th>Код</th><th>Поле</th><th>Культура</th><th>Площадь, га</th></tr></thead><tbody>${fieldRows()}</tbody></table>`;
+function operationRows(status){return filterOperations(state,status).map(o=>`<tr><td>${esc(state.fields.find(f=>f.id===o.field).name)}</td><td>${esc(o.kind)}</td><td>${o.date.split('-').reverse().join('.')}</td><td>${esc(o.status)}</td><td>${o.status===statusValues[0]?`<button data-finish="${esc(o.id)}">Отметить выполненной</button>`:''}</td></tr>`).join('');}
+function show(tab){
+  nav.innerHTML=Object.entries(tabs).map(([id,label])=>`<button class="${id===tab?'on':''}" data-tab="${id}">${label}</button>`).join('');
+  if(tab==='overview') app.innerHTML=`<h1>Панель хозяйства</h1><p class="meta">Сведения о полях и ходе сельскохозяйственных работ</p><div class="row"><div class="tile">Поля<b>${state.fields.length}</b></div><div class="tile">Общая площадь<b>${areaFmt.format(state.fields.reduce((sum,f)=>sum+f.area,0))} га</b></div><div class="tile">Запланированные работы<b>${filterOperations(state,statusValues[0]).length}</b></div></div><b>Реестр полей</b>${fieldTable()}`;
+  if(tab==='fields'){
+    app.innerHTML=`<h1>Реестр полей</h1>${fieldTable()}<section><form id="field-form"><label>Название поля<input name="name" required></label><label>Культура<input name="crop" required></label><label>Площадь, га<input name="area" inputmode="decimal" required></label><button class="primary">Добавить поле</button></form><output aria-live="polite"></output></section>`;
+    const form=app.querySelector('form');
+    form.onsubmit=e=>{e.preventDefault();const f=new FormData(form);try{store(addField(state,f.get('name'),f.get('crop'),f.get('area')));show('fields');message('Поле добавлено.');}catch(error){message(error.message,true);}};
+  }
+  if(tab==='operations'){
+    app.innerHTML=`<h1>Журнал работ</h1><label>Статус<select id="filter"><option value="">Все работы</option>${statusValues.map(s=>`<option>${s}</option>`).join('')}</select></label><table><thead><tr><th>Поле</th><th>Работа</th><th>Дата</th><th>Статус</th><th>Действие</th></tr></thead><tbody></tbody></table><section><form id="operation-form"><label>Поле<select name="field">${state.fields.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select></label><label>Работа<input name="kind" required></label><label>Дата<input name="date" type="date" required></label><button class="primary">Добавить работу</button></form><output aria-live="polite"></output></section>`;
+    const filter=app.querySelector('#filter'); const tbody=app.querySelector('tbody');
+    const render=()=>{tbody.innerHTML=operationRows(filter.value)||'<tr><td colspan="5">Работ с выбранным статусом нет.</td></tr>';};
+    render(); filter.onchange=render;
+    tbody.onclick=e=>{if(e.target.dataset.finish){try{store(finishOperation(state,e.target.dataset.finish));render();message('Статус обновлён.');}catch(error){message(error.message,true);}}};
+    app.querySelector('form').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);try{store(addOperation(state,f.get('field'),f.get('kind'),f.get('date')));e.target.reset();filter.value='';render();message('Работа добавлена.');}catch(error){message(error.message,true);}};
+  }
+  if(tab==='backup'){
+    app.innerHTML=`<h1>Резервное копирование</h1><p class="meta">Копия включает карточки полей и журнал работ в формате JSON.</p><section><div class="toolbar"><a id="export" class="button primary" download="agromaster-backup.json">Скачать копию</a><label>Восстановить из файла<input id="import" type="file" accept=".json,application/json"></label></div><output aria-live="polite">Текущий набор: полей — ${state.fields.length}, работ — ${state.operations.length}.</output></section><p>При успешной проверке копии текущий набор целиком заменяется. Сохраните копию перед восстановлением.</p>`;
+    const link=app.querySelector('#export');link.href='data:application/json;charset=utf-8,'+encodeURIComponent(snapshot(state));
+    app.querySelector('#import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{store(restore(await file.text()));show('backup');message('Копия восстановлена. Полей: '+state.fields.length+'. Работ: '+state.operations.length+'.');}catch(error){message(error.message,true);}};
+  }
+  if(tab==='tests'){
+    const fails=fn=>{try{fn();return false;}catch{return true;}};
+    const cases=[['T01','Исходные данные: 3 поля, 2 работы, 55 га',()=>initial.fields.length===3&&initial.operations.length===2&&initial.fields.reduce((s,f)=>s+f.area,0)===55],['T02','Карточка: площадь 7,5 га',()=>addField(initial,'Восточное','Овёс','7,5').fields.at(-1).area===7.5],['T03','Карточка: нулевая площадь отклоняется',()=>fails(()=>addField(initial,'Восточное','Овёс','0'))],['T04','Карточка: отрицательная и текстовая площади отклоняются',()=>fails(()=>parseArea('-4'))&&fails(()=>parseArea('abc'))],['T05','Журнал: добавление и смена статуса',()=>{const d=addOperation(initial,'F01','Осмотр','2026-12-01');return filterOperations(finishOperation(d,'O03'),statusValues[1]).length===2;}],['T06','Восстановление: исходный набор совпадает',()=>JSON.stringify(restore(snapshot(initial)))===JSON.stringify(initial)],['T07','Восстановление: отсутствующая ссылка на поле выявлена',()=>{const d=copy(initial);d.operations[0].field='F99';return fails(()=>restore(snapshot(d)));}],['T08','Восстановление: неверная версия и битый JSON отклоняются',()=>fails(()=>restore('{"version":2}'))&&fails(()=>restore('{broken'))],['T09','Журнал: невозможная дата отклоняется',()=>fails(()=>addOperation(initial,'F01','Осмотр','2026-02-31'))]];
+    const results=cases.map(([id,title,run])=>{let ok=false;try{ok=run();}catch{}return {id,title,ok};});
+    app.innerHTML=`<h1>Контрольные проверки</h1><p class="meta" id="test-summary">Пройдено ${results.filter(x=>x.ok).length} из ${results.length}</p><table><thead><tr><th>Код</th><th>Сценарий</th><th>Результат</th></tr></thead><tbody>${results.map(r=>`<tr><td>${r.id}</td><td>${r.title}</td><td class="${r.ok?'check':'bad'}">${r.ok?'Пройдено':'Ошибка'}</td></tr>`).join('')}</tbody></table>`;
+  }
+}
+function message(text,error=false){const out=app.querySelector('output');out.textContent=text;out.className=error?'error':'';}
+nav.onclick=e=>{if(e.target.dataset.tab)show(e.target.dataset.tab);};
+const tab=params.get('tab');show(Object.hasOwn(tabs,tab)?tab:'overview');
+if(params.has('demo')&&tab==='fields'&&['0','7,5'].includes(params.get('area'))){const form=app.querySelector('form');form.elements.name.value='Восточное';form.elements.crop.value='Овёс';form.elements.area.value=params.get('area');form.requestSubmit();}
+if(params.has('demo')&&tab==='operations'&&params.get('filter')==='planned'){const filter=app.querySelector('#filter');filter.value=statusValues[0];filter.dispatchEvent(new Event('change'));}
+</script></html>
