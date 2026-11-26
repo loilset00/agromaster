@@ -16,7 +16,7 @@ const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const areaFmt=new Intl.NumberFormat('ru-RU');
 function parseArea(value){
   const number=Number(String(value).trim().replace(',','.'));
-  if(!Number.isFinite(number)||number<0) throw new Error('Введите площадь больше нуля.');
+  if(!Number.isFinite(number)||number<=0) throw new Error('Введите площадь больше нуля.');
   return number;
 }
 function validDate(value){
